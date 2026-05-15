@@ -1,0 +1,52 @@
+:root {
+  color-scheme: dark;
+
+  --color-bg-canvas: oklch(0.16 0.005 250);
+  --color-bg-elevated: oklch(0.20 0.006 250);
+  --color-bg-overlay: oklch(0.24 0.007 250);
+  --color-bg-pressed: oklch(0.18 0.006 250);
+  --color-border-subtle: oklch(0.28 0.008 250);
+  --color-border-strong: oklch(0.40 0.012 250);
+  --color-text-primary: oklch(0.95 0.005 80);
+  --color-text-body: oklch(0.85 0.006 80);
+  --color-text-muted: oklch(0.62 0.005 80);
+  --color-text-disabled: oklch(0.40 0.004 80);
+  --color-signal-positive: oklch(0.72 0.18 165);
+  --color-signal-negative: oklch(0.62 0.18 25);
+  --color-signal-neutral: oklch(0.70 0.008 80);
+  --color-signal-alert: oklch(0.78 0.20 75);
+  --color-signal-critical: oklch(0.62 0.24 25);
+  --color-accent: oklch(0.74 0.16 145);
+
+  --font-ui: "JetBrains Mono", "Iosevka", monospace;
+  --font-body: "iA Writer Quattro", "Iosevka", monospace;
+
+  --text-xs: 0.6875rem;
+  --text-sm: 0.8125rem;
+  --text-base: 0.875rem;
+  --text-md: 1rem;
+  --text-lg: 1.25rem;
+
+  --line-xs: 0.875rem;
+  --line-sm: 1.125rem;
+  --line-base: 1.25rem;
+  --line-md: 1.375rem;
+  --line-lg: 1.625rem;
+
+  --space-0: 0;
+  --space-1: 0.125rem;
+  --space-2: 0.25rem;
+  --space-3: 0.375rem;
+  --space-4: 0.5rem;
+  --space-5: 0.75rem;
+  --space-6: 1rem;
+  --space-7: 1.5rem;
+  --space-8: 2rem;
+  --space-9: 3rem;
+  --space-10: 4rem;
+
+  --border-width-subtle: 0.0625rem;
+  --radius-panel: 0.375rem;
+  --motion-quick: 160ms;
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+}

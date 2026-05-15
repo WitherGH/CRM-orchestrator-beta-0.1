@@ -1,0 +1,36 @@
+{
+  "name": "@crm-orchestrator/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "next build",
+    "dev": "next dev",
+    "lint": "next lint",
+    "start": "next start",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@crm-orchestrator/db": "workspace:*",
+    "@crm-orchestrator/ui": "workspace:*",
+    "@trpc/server": "^11.17.0",
+    "chokidar": "^4.0.3",
+    "drizzle-orm": "^0.45.2",
+    "gray-matter": "^4.0.3",
+    "next": "^15.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^5.0.0",
+    "eslint": "^8.57.1",
+    "eslint-config-next": "^15.0.0",
+    "typescript": "^5.5.0",
+    "vitest": "^2.1.9"
+  }
+}

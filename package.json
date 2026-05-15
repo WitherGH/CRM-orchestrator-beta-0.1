@@ -1,0 +1,24 @@
+{
+  "name": "crm-orchestrator-beta-0.1",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "pnpm -r --if-present build",
+    "db:generate": "pnpm --filter @crm-orchestrator/db db:generate",
+    "db:migrate": "pnpm --filter @crm-orchestrator/db db:migrate",
+    "db:studio": "pnpm --filter @crm-orchestrator/db db:studio",
+    "dev": "pnpm --filter @crm-orchestrator/web dev",
+    "lint": "pnpm -r --if-present lint",
+    "test": "pnpm -r --if-present test",
+    "tick": "pnpm --filter @crm-orchestrator/orchestrator tick",
+    "tick:daemon": "pnpm --filter @crm-orchestrator/orchestrator tick:daemon",
+    "typecheck": "pnpm -r --if-present typecheck"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

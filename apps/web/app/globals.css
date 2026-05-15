@@ -1,0 +1,32 @@
+@import "@crm-orchestrator/ui/tokens";
+@import "./orchestrator.css";
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--color-bg-canvas);
+}
+
+body {
+  margin: var(--space-0);
+  min-height: 100vh;
+  background: var(--color-bg-canvas);
+  color: var(--color-text-body);
+  font-family: var(--font-ui);
+  font-size: var(--text-base);
+  line-height: var(--line-base);
+  text-rendering: optimizeLegibility;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+a {
+  color: inherit;
+}

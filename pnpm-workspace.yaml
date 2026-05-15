@@ -1,0 +1,8 @@
+packages:
+  - apps/*
+  - packages/*
+  - orchestrator
+allowBuilds:
+  esbuild: true
+  sharp: true
+  unrs-resolver: true

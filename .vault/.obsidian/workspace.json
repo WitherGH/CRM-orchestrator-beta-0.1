@@ -1,0 +1,219 @@
+{
+  "main": {
+    "id": "a7c7f26ffea26198",
+    "type": "split",
+    "children": [
+      {
+        "id": "07d7cc948fd3c645",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "6d4ef798f1d166c1",
+            "type": "leaf",
+            "state": {
+              "type": "graph",
+              "state": {},
+              "icon": "lucide-git-fork",
+              "title": "Graph view"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "vertical"
+  },
+  "left": {
+    "id": "cdf5c5657efbbc95",
+    "type": "split",
+    "children": [
+      {
+        "id": "8ac7ad6c5571fe85",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "7234a2d66d696c33",
+            "type": "leaf",
+            "state": {
+              "type": "file-explorer",
+              "state": {
+                "sortOrder": "alphabetical",
+                "autoReveal": false
+              },
+              "icon": "lucide-folder-closed",
+              "title": "Files"
+            }
+          },
+          {
+            "id": "0ca5cc8c2bbf773c",
+            "type": "leaf",
+            "state": {
+              "type": "search",
+              "state": {
+                "query": "",
+                "matchingCase": false,
+                "explainSearch": false,
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical"
+              },
+              "icon": "lucide-search",
+              "title": "Search"
+            }
+          },
+          {
+            "id": "564101134a01ff9e",
+            "type": "leaf",
+            "state": {
+              "type": "bookmarks",
+              "state": {},
+              "icon": "lucide-bookmark",
+              "title": "Bookmarks"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300
+  },
+  "right": {
+    "id": "57967b78bdd3fae7",
+    "type": "split",
+    "children": [
+      {
+        "id": "b1dc5f9dcff43a9c",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "308d67b3d3d5c78a",
+            "type": "leaf",
+            "state": {
+              "type": "backlink",
+              "state": {
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical",
+                "showSearch": false,
+                "searchQuery": "",
+                "backlinkCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-coming-in",
+              "title": "Backlinks"
+            }
+          },
+          {
+            "id": "9efcdaf42b0ab9e1",
+            "type": "leaf",
+            "state": {
+              "type": "outgoing-link",
+              "state": {
+                "linksCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-going-out",
+              "title": "Outgoing links"
+            }
+          },
+          {
+            "id": "b6bd04d8a57e164e",
+            "type": "leaf",
+            "state": {
+              "type": "tag",
+              "state": {
+                "sortOrder": "frequency",
+                "useHierarchy": true,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-tags",
+              "title": "Tags"
+            }
+          },
+          {
+            "id": "74447511b49f7b93",
+            "type": "leaf",
+            "state": {
+              "type": "all-properties",
+              "state": {
+                "sortOrder": "frequency",
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-archive",
+              "title": "All properties"
+            }
+          },
+          {
+            "id": "e2babc47b35d2370",
+            "type": "leaf",
+            "state": {
+              "type": "outline",
+              "state": {
+                "file": "CLAUDE.md",
+                "followCursor": false,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-list",
+              "title": "Outline of CLAUDE"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300,
+    "collapsed": true
+  },
+  "left-ribbon": {
+    "hiddenItems": {
+      "switcher:Open quick switcher": false,
+      "graph:Open graph view": false,
+      "canvas:Create new canvas": false,
+      "daily-notes:Open today's daily note": false,
+      "templates:Insert template": false,
+      "command-palette:Open command palette": false,
+      "bases:Create new base": false,
+      "obsidian-excalidraw-plugin:New drawing": false,
+      "templater-obsidian:Templater": false
+    }
+  },
+  "active": "6d4ef798f1d166c1",
+  "lastOpenFiles": [
+    "04-tasks/crm-orchestrator/review/T-025-epic-driven-automation-flow.md",
+    "04-tasks/crm-orchestrator/done/T-018-human-request-intake-role-pipeline.md",
+    "04-tasks/crm-orchestrator/done/T-017-agent-board-modal-cost-dashboard.md",
+    "04-tasks/crm-orchestrator/done/T-016-notification-firehose-drawer.md",
+    "04-tasks/crm-orchestrator/done/T-015-vault-markdown-renderer.md",
+    "04-tasks/crm-orchestrator/done/T-014-inbox-vault-explorer-sidebar.md",
+    "04-tasks/crm-orchestrator/done/T-013-pr-queue-panel.md",
+    "04-tasks/crm-orchestrator/done/T-012-live-agent-state-right-rail.md",
+    "04-tasks/crm-orchestrator/done/T-011-task-detail-drawer.md",
+    "04-tasks/crm-orchestrator/done/T-010-kanban-board.md",
+    "04-tasks/crm-orchestrator/done/T-009-top-stat-bar-component.md",
+    "04-tasks/crm-orchestrator/done/T-008-trpc-adminrouter-mutations.md",
+    "04-tasks/crm-orchestrator/done/T-007-trpc-adminrouter-read-procedures.md",
+    "04-tasks/crm-orchestrator/done/T-006-vault-fs-watcher-service.md",
+    "04-tasks/crm-orchestrator/done/T-005-db-schema-agent-runs-events-cost.md",
+    "04-tasks/crm-orchestrator/done/T-004-admin-orchestrator-page-skeleton.md",
+    "04-tasks/crm-orchestrator/done/T-002-pm-decompose-crm.md",
+    "04-tasks/crm-orchestrator/done/T-003-orchestrator-http-status-endpoint.md",
+    "04-tasks/crm-orchestrator/done/T-001-audit-existing-code.md",
+    "04-tasks/crm-orchestrator/review",
+    "04-tasks/crm-orchestrator/done",
+    "04-tasks/crm-orchestrator",
+    "04-tasks/terminal-frontend/backlog/T-024-designer-define-and-build-the-first-usable-product-fr.md",
+    "04-tasks/terminal-frontend/backlog/T-023-pm-define-and-build-the-first-usable-product-fr.md",
+    "04-tasks/terminal-frontend/backlog/T-022-architect-define-and-build-the-first-usable-product-fr.md",
+    "04-tasks/terminal-frontend/backlog/T-021-designer-define-and-build-the-first-usable-product-fr.md",
+    "04-tasks/terminal-frontend/backlog/T-020-pm-define-and-build-the-first-usable-product-fr.md",
+    "04-tasks/terminal-frontend/backlog/T-019-architect-define-and-build-the-first-usable-product-fr.md",
+    "04-tasks/terminal-frontend/backlog",
+    "04-tasks/terminal-frontend",
+    "03-projects/terminal-frontend.md",
+    "03-projects",
+    "04-tasks/failed",
+    "skills"
+  ]
+}
