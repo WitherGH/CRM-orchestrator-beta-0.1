@@ -38,14 +38,27 @@ Verified: `pnpm lint && pnpm typecheck && pnpm test` all green
 (web: 137/137 tests, orchestrator: 14/14), `next build` clean, and a dev-server
 smoke test of `/build`, `/insights`, `/` redirect, and `/admin/orchestrator`.
 
+## Increment 2 (same day)
+
+- Home tab is real now: one goal field posting to the existing human-request
+  API (full pipeline enabled on default models; title = first line of goal),
+  plus a project list with progress bar, done/total, working / needs-you
+  counts, and today's burn per project from the cost journal.
+- Answer-in-UI flow for `blocked-question` (F0.6 UI side): answer textarea in
+  the task drawer appends a dated "## Human answer" section to the task body
+  via `task-edit`, then requeues to backlog unflagged via `task-status`.
+- Drawer also offers Retry for `failed` and Unflag & requeue for flagged
+  tasks. All through the existing control API — no orchestrator changes.
+- Verified: lint, typecheck, 147/147 web tests, `next build`, dev smoke of
+  /home and /build.
+
 ## Next (Package 1 remaining)
 
-1. Home tab: real goal intake (reuse human-request API) + project list with
-   progress and burn per project.
-2. Answer-in-UI flow for `blocked-question` cards (pairs with F0.6 in core).
-3. Actions in the task drawer (approve merge, unflag/relaunch) instead of
-   linking out to the ops console.
-4. Start migrating remaining admin panels off `orchestrator.css`.
+1. Approve-merge action in the task drawer / Review column (needs PR number
+   surfaced on the task).
+2. Start migrating remaining admin panels off `orchestrator.css`.
+3. F0.6 core side: surface the agent's actual question text in the feed/card
+   (today the drawer shows the task body only).
 
 Then Package 2: Runner abstraction (`Runner { run(task, ctx) }`,
 OpenRouterRunner v1 for text roles, CustomCliRunner, Model Hub screen).

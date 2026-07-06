@@ -10,6 +10,7 @@ import {
   type BuildTaskBadge,
   type BuildTaskCard,
 } from './build-columns';
+import { TaskActions } from './task-actions';
 
 interface BuildBoardProps {
   columns: BuildColumn[];
@@ -137,6 +138,8 @@ function TaskDrawer({ onClose, task }: { onClose: () => void; task: VaultTask })
           )}
           {task.flagged && <DrawerFact label="Flagged" value="yes — needs a human look" />}
         </dl>
+
+        <TaskActions onDone={onClose} task={task} />
 
         {task.body.trim() !== '' && (
           <section aria-label="Task description">
