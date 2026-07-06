@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation';
 
-export default function HomePage() {
-  redirect('/admin/orchestrator');
+export default function RootPage() {
+  redirect('/build');
 }

@@ -1,0 +1,34 @@
+/*
+ * Product surface tokens — light theme for the Home / Build / Deploy / Market /
+ * Insights shell. Prefixed with --product- so they can coexist with the dark
+ * admin console tokens in index.css while that surface is retired gradually.
+ */
+:root {
+  --product-color-canvas: oklch(0.985 0.003 90);
+  --product-color-surface: oklch(1 0 0);
+  --product-color-surface-sunken: oklch(0.962 0.004 90);
+  --product-color-line: oklch(0.918 0.005 90);
+  --product-color-line-strong: oklch(0.845 0.006 90);
+  --product-color-ink: oklch(0.26 0.012 270);
+  --product-color-ink-secondary: oklch(0.46 0.012 270);
+  --product-color-ink-faint: oklch(0.60 0.010 270);
+  --product-color-accent: oklch(0.52 0.17 275);
+  --product-color-accent-strong: oklch(0.45 0.18 275);
+  --product-color-accent-soft: oklch(0.95 0.028 275);
+  --product-color-positive: oklch(0.56 0.13 155);
+  --product-color-positive-soft: oklch(0.955 0.03 155);
+  --product-color-warning: oklch(0.62 0.13 75);
+  --product-color-warning-soft: oklch(0.962 0.04 85);
+  --product-color-danger: oklch(0.55 0.19 25);
+  --product-color-danger-soft: oklch(0.955 0.028 25);
+
+  --product-font-sans: ui-sans-serif, -apple-system, "SF Pro Text", "Inter", "Segoe UI", sans-serif;
+  --product-font-mono: ui-monospace, "SF Mono", "JetBrains Mono", monospace;
+
+  --product-radius-card: 0.625rem;
+  --product-radius-control: 0.5rem;
+  --product-radius-pill: 999px;
+
+  --product-shadow-card: 0 1px 2px oklch(0 0 0 / 0.05);
+  --product-shadow-drawer: -12px 0 48px oklch(0 0 0 / 0.14);
+}
