@@ -11,6 +11,8 @@ import {
   type BuildTaskCard,
 } from './build-columns';
 import { TaskActions } from './task-actions';
+import { extractAgentQuestion } from './task-question';
+import { readTaskPr } from './task-pr';
 
 interface BuildBoardProps {
   columns: BuildColumn[];
@@ -76,6 +78,8 @@ function TaskCard({
   onSelect: (task: VaultTask) => void;
 }) {
   const { badge, task } = card;
+  const question = badge === 'question' ? extractAgentQuestion(task.body) : null;
+  const taskPr = badge === 'merge-ready' ? readTaskPr(task) : null;
 
   return (
     <li>
@@ -96,7 +100,13 @@ function TaskCard({
             className={`mt-2 inline-block rounded-pill px-2 py-0.5 text-xs font-medium ${badgeToneClass[badge]}`}
           >
             {BUILD_BADGE_LABELS[badge]}
+            {taskPr !== null && ` · #${taskPr.prNumber}`}
           </span>
+        )}
+        {question !== null && (
+          <p className="mt-2 line-clamp-2 border-l-2 border-warning pl-2 text-xs text-ink-secondary">
+            {question}
+          </p>
         )}
       </button>
     </li>

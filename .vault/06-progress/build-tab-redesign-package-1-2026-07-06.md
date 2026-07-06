@@ -52,13 +52,31 @@ smoke test of `/build`, `/insights`, `/` redirect, and `/admin/orchestrator`.
 - Verified: lint, typecheck, 147/147 web tests, `next build`, dev smoke of
   /home and /build.
 
-## Next (Package 1 remaining)
+## Increment 3 (same day) — Package 1 complete
 
-1. Approve-merge action in the task drawer / Review column (needs PR number
-   surfaced on the task).
-2. Start migrating remaining admin panels off `orchestrator.css`.
-3. F0.6 core side: surface the agent's actual question text in the feed/card
-   (today the drawer shows the task body only).
+- Approve-merge in the UI: merge-ready tasks read `pr_number` / `pr_url` from
+  frontmatter (via task.metadata); the card badge shows "ready to merge · #N"
+  and the drawer offers a PR link + "Approve merge" button posting to the
+  existing /prs/merge route.
+- Agent questions surfaced: the latest "## Question for …" section of the
+  task body (the marker tick.ts uses to route to blocked-question) is shown
+  as a two-line preview on the card and quoted in full above the drawer's
+  answer box.
+- Verified: lint, typecheck, 153/153 web + 14/14 orchestrator tests, and a
+  dev-server smoke with synthetic blocked-question and merge-ready vault
+  tasks (removed after the check).
+
+**Package 1 is done.** The daily loop — goal in, watch agents, answer
+questions, approve merges, see burn — now happens entirely in the product UI.
+Retiring the remaining `orchestrator.css` admin panels continues gradually as
+those panels get product-tab equivalents (Model Hub in Package 2 replaces the
+model-routing rail; Insights in Phase 4 replaces the cost mode).
+
+## Next: Package 2 — Runner abstraction
+
+`Runner { run(task, ctx): RunResult }`; refactor Claude/Codex CLI into
+runners; OpenRouterRunner v1 (text roles: architect/pm/designer/reviewer);
+CustomCliRunner; then the Model Hub screen replaces agent-routing.json edits.
 
 Then Package 2: Runner abstraction (`Runner { run(task, ctx) }`,
 OpenRouterRunner v1 for text roles, CustomCliRunner, Model Hub screen).
