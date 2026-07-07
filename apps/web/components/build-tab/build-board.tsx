@@ -16,6 +16,7 @@ import { readTaskPr } from './task-pr';
 
 interface BuildBoardProps {
   columns: BuildColumn[];
+  roleEstimatesUsd?: Record<string, number>;
 }
 
 const badgeToneClass: Record<BuildTaskBadge, string> = {
@@ -29,7 +30,7 @@ const priorityToneClass: Record<string, string> = {
   P1: 'text-warning',
 };
 
-export function BuildBoard({ columns }: BuildBoardProps) {
+export function BuildBoard({ columns, roleEstimatesUsd = {} }: BuildBoardProps) {
   const [selectedTask, setSelectedTask] = useState<VaultTask | null>(null);
 
   return (
@@ -64,7 +65,15 @@ export function BuildBoard({ columns }: BuildBoardProps) {
       </div>
 
       {selectedTask !== null && (
-        <TaskDrawer onClose={() => setSelectedTask(null)} task={selectedTask} />
+        <TaskDrawer
+          estimateUsd={
+            selectedTask.status === 'backlog'
+              ? roleEstimatesUsd[selectedTask.assignee] ?? null
+              : null
+          }
+          onClose={() => setSelectedTask(null)}
+          task={selectedTask}
+        />
       )}
     </div>
   );
@@ -113,7 +122,15 @@ function TaskCard({
   );
 }
 
-function TaskDrawer({ onClose, task }: { onClose: () => void; task: VaultTask }) {
+function TaskDrawer({
+  estimateUsd,
+  onClose,
+  task,
+}: {
+  estimateUsd: number | null;
+  onClose: () => void;
+  task: VaultTask;
+}) {
   return (
     <div aria-modal="true" className="fixed inset-0 z-50" role="dialog">
       <button
@@ -147,6 +164,12 @@ function TaskDrawer({ onClose, task }: { onClose: () => void; task: VaultTask })
             <DrawerFact label="Depends on" value={task.dependsOn.join(', ')} />
           )}
           {task.flagged && <DrawerFact label="Flagged" value="yes — needs a human look" />}
+          {estimateUsd !== null && (
+            <DrawerFact
+              label="Estimated run cost"
+              value={`≈ $${estimateUsd.toFixed(2)} (from prior runs)`}
+            />
+          )}
         </dl>
 
         <TaskActions onDone={onClose} task={task} />

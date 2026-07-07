@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { summarizeCostJournal } from './cost-journal';
+import { estimateRoleCostsUsd, summarizeCostJournal } from './cost-journal';
 
 describe('summarizeCostJournal', () => {
   const now = new Date('2026-07-06T15:00:00');
@@ -52,6 +52,27 @@ describe('summarizeCostJournal', () => {
       todayEntryCount: 0,
       todayUsd: 0,
     });
+  });
+});
+
+describe('estimateRoleCostsUsd', () => {
+  it('averages exact runs per role and skips heuristic entries', () => {
+    const content = [
+      JSON.stringify({ estimated: false, model: 'gpt-5.5', role: 'developer', usd: 0.4 }),
+      JSON.stringify({ estimated: false, model: 'gpt-5.5', role: 'developer', usd: 0.6 }),
+      JSON.stringify({ estimated: true, model: 'gpt-5.5', role: 'developer', usd: 9 }),
+      JSON.stringify({ estimated: false, model: 'opus', role: 'reviewer', usd: 3 }),
+      'garbage line',
+    ].join('\n');
+
+    const estimates = estimateRoleCostsUsd(content);
+
+    expect(estimates.developer).toBeCloseTo(0.5);
+    expect(estimates.reviewer).toBeCloseTo(3);
+  });
+
+  it('returns an empty record for an empty journal', () => {
+    expect(estimateRoleCostsUsd('')).toEqual({});
   });
 });
 

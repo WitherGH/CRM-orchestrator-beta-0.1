@@ -4,7 +4,7 @@
 
 import { spawn, type ChildProcess } from 'node:child_process';
 import { createWriteStream, existsSync, readFileSync } from 'node:fs';
-import { appendFile, cp, mkdir, readdir, readFile, rename, rm, symlink, writeFile } from 'node:fs/promises';
+import { appendFile, cp, mkdir, readdir, readFile, rename, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { basename, dirname, extname, isAbsolute, join, relative, sep } from 'node:path';
 import { Readable } from 'node:stream';
@@ -1074,19 +1074,28 @@ async function runAgent(task: Task, worktreePath: string): Promise<RunResult> {
   let result: { stdout: string; stderr: string; code: number };
 
   if (runner === 'claude') {
+    // F0.1: stream-json keeps the live log flowing AND ends with a result
+    // event carrying exact usage + total_cost_usd, so cost is never estimated.
     result = await exec(
       'claude',
-      ['--agent', task.assignee, '--model', model, '--print', prompt],
+      [
+        '--agent', task.assignee,
+        '--model', model,
+        '--print',
+        '--output-format', 'stream-json',
+        '--verbose',
+        prompt,
+      ],
       worktreePath,
       claudeAgentEnv(),
       { timeoutMs: AGENT_TIMEOUT_MS, logPath: liveLogPath, taskId: task.id },
     );
   } else {
     // Codex doesn't support --agent flag. Read role file and prepend to prompt.
+    // The role file leads the prompt so the static prefix stays byte-identical
+    // across launches and provider-side prompt caching can hit.
     const agentFilePath = join(REPO_ROOT, `.codex/agents/${task.assignee}.md`);
-    const agentContext = existsSync(agentFilePath)
-      ? await readFile(agentFilePath, 'utf-8')
-      : '';
+    const agentContext = await readRoleFileCached(agentFilePath);
     const codexPrompt = agentContext
       ? `${agentContext}\n\n---\n\nYour task:\n${prompt}`
       : prompt;
@@ -1111,6 +1120,27 @@ async function runAgent(task: Task, worktreePath: string): Promise<RunResult> {
     tokensOut: cost.tokensOut,
     durationMs: Date.now() - started,
   };
+}
+
+// Role files change rarely but are re-sent on every Codex launch; cache them
+// in memory keyed by mtime so repeated launches skip the disk read and always
+// produce the exact same prefix bytes (a prerequisite for prompt-cache hits).
+const roleFileCache = new Map<string, { content: string; mtimeMs: number }>();
+
+async function readRoleFileCached(path: string): Promise<string> {
+  try {
+    const stats = await stat(path);
+    const cached = roleFileCache.get(path);
+    if (cached !== undefined && cached.mtimeMs === stats.mtimeMs) {
+      return cached.content;
+    }
+
+    const content = await readFile(path, 'utf-8');
+    roleFileCache.set(path, { content, mtimeMs: stats.mtimeMs });
+    return content;
+  } catch {
+    return '';
+  }
 }
 
 function claudeAgentEnv(): NodeJS.ProcessEnv {
@@ -1160,7 +1190,7 @@ interface CostEstimate {
   estimated: boolean;
 }
 
-function estimateCost(output: string): CostEstimate {
+export function estimateCost(output: string): CostEstimate {
   // 1. Codex-style summary line: "Tokens used: N input, M output ... $X.YZ"
   const codex = output.match(/Tokens used: (\d+) input, (\d+) output.*\$(\d+\.\d+)/);
   if (codex) {
@@ -1172,8 +1202,15 @@ function estimateCost(output: string): CostEstimate {
     };
   }
 
-  // 2. Claude Code JSON result fields (present with --output-format json,
-  //    and often embedded in stream output): total_cost_usd + usage tokens.
+  // 2. Claude Code stream-json: the final result event carries authoritative
+  //    total_cost_usd and full usage (including cache tokens). Scan from the
+  //    end — intermediate assistant events also contain usage objects.
+  const claudeResult = parseClaudeResultEvent(output);
+  if (claudeResult !== null) {
+    return claudeResult;
+  }
+
+  // 3. Loose fallback for plain-JSON output: regex for total_cost_usd.
   const claudeCost = output.match(/"total_cost_usd"\s*:\s*([0-9]+(?:\.[0-9]+)?)/);
   const claudeIn = output.match(/"input_tokens"\s*:\s*(\d+)/);
   const claudeOut = output.match(/"output_tokens"\s*:\s*(\d+)/);
@@ -1186,7 +1223,7 @@ function estimateCost(output: string): CostEstimate {
     };
   }
 
-  // 3. Fallback heuristic: ~4 chars per token. Marked as estimated so the
+  // 4. Fallback heuristic: ~4 chars per token. Marked as estimated so the
   //    journal and UI can distinguish real vs guessed spend.
   return {
     tokensIn: Math.floor(output.length / 4),
@@ -1194,6 +1231,52 @@ function estimateCost(output: string): CostEstimate {
     usd: (output.length / 4 / 1_000_000) * 3,
     estimated: true,
   };
+}
+
+function parseClaudeResultEvent(output: string): CostEstimate | null {
+  const lines = output.split('\n');
+  for (let i = lines.length - 1; i >= 0; i -= 1) {
+    const trimmed = lines[i].trim();
+    if (!trimmed.startsWith('{')) continue;
+
+    let event: {
+      total_cost_usd?: unknown;
+      type?: unknown;
+      usage?: {
+        cache_creation_input_tokens?: unknown;
+        cache_read_input_tokens?: unknown;
+        input_tokens?: unknown;
+        output_tokens?: unknown;
+      };
+    };
+    try {
+      event = JSON.parse(trimmed);
+    } catch {
+      continue;
+    }
+
+    if (event.type !== 'result' || typeof event.total_cost_usd !== 'number') {
+      continue;
+    }
+
+    const usage = event.usage ?? {};
+    const tokensIn = asCount(usage.input_tokens)
+      + asCount(usage.cache_read_input_tokens)
+      + asCount(usage.cache_creation_input_tokens);
+
+    return {
+      tokensIn,
+      tokensOut: asCount(usage.output_tokens),
+      usd: event.total_cost_usd,
+      estimated: false,
+    };
+  }
+
+  return null;
+}
+
+function asCount(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : 0;
 }
 
 // ============================================================================
@@ -1222,24 +1305,40 @@ function isSameLocalDay(a: Date, b: Date): boolean {
     && a.getDate() === b.getDate();
 }
 
-async function getTodayCost(now = new Date(), journalPath = COST_JOURNAL_PATH): Promise<number> {
-  if (!existsSync(journalPath)) return 0;
+async function readCostJournalEntries(
+  journalPath = COST_JOURNAL_PATH,
+): Promise<Partial<CostJournalEntry>[]> {
+  if (!existsSync(journalPath)) return [];
 
   try {
     const raw = await readFile(journalPath, 'utf-8');
-    let total = 0;
+    const entries: Partial<CostJournalEntry>[] = [];
     for (const line of raw.split('\n')) {
       const trimmed = line.trim();
       if (trimmed === '') continue;
       try {
-        const entry = JSON.parse(trimmed) as Partial<CostJournalEntry>;
-        if (typeof entry.ts !== 'string' || typeof entry.usd !== 'number') continue;
-        const ts = new Date(entry.ts);
-        if (!Number.isNaN(ts.getTime()) && isSameLocalDay(ts, now) && entry.usd >= 0) {
-          total += entry.usd;
-        }
+        entries.push(JSON.parse(trimmed) as Partial<CostJournalEntry>);
       } catch {
         // Skip malformed lines instead of failing the whole tick.
+      }
+    }
+    return entries;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[cost] could not read cost journal: ${msg}`);
+    return [];
+  }
+}
+
+async function getTodayCost(now = new Date(), journalPath = COST_JOURNAL_PATH): Promise<number> {
+  try {
+    const entries = await readCostJournalEntries(journalPath);
+    let total = 0;
+    for (const entry of entries) {
+      if (typeof entry.ts !== 'string' || typeof entry.usd !== 'number') continue;
+      const ts = new Date(entry.ts);
+      if (!Number.isNaN(ts.getTime()) && isSameLocalDay(ts, now) && entry.usd >= 0) {
+        total += entry.usd;
       }
     }
     return total;
@@ -1248,6 +1347,38 @@ async function getTodayCost(now = new Date(), journalPath = COST_JOURNAL_PATH): 
     console.warn(`[cost] could not read cost journal: ${msg}`);
     return 0;
   }
+}
+
+// Pre-launch cost estimate from journal history: prefer exact (non-estimated)
+// entries for the same role+model, then same role, then anything — averaged
+// over the most recent runs. With an empty journal, fall back to a flat
+// default (ORCHESTRATOR_DEFAULT_LAUNCH_COST_USD, $1 if unset).
+const LAUNCH_ESTIMATE_SAMPLE_SIZE = 20;
+
+function defaultLaunchCostUsd(): number {
+  const parsed = Number(process.env.ORCHESTRATOR_DEFAULT_LAUNCH_COST_USD);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 1;
+}
+
+export function estimateLaunchCostUsd(
+  role: string,
+  model: string,
+  entries: readonly Partial<CostJournalEntry>[],
+): number {
+  const usable = entries.filter(
+    (entry) => typeof entry.usd === 'number' && entry.usd >= 0 && entry.estimated !== true,
+  );
+  const sameRoleModel = usable.filter((entry) => entry.role === role && entry.model === model);
+  const sameRole = sameRoleModel.length > 0
+    ? sameRoleModel
+    : usable.filter((entry) => entry.role === role);
+  const sample = (sameRole.length > 0 ? sameRole : usable).slice(-LAUNCH_ESTIMATE_SAMPLE_SIZE);
+
+  if (sample.length === 0) {
+    return defaultLaunchCostUsd();
+  }
+
+  return sample.reduce((total, entry) => total + (entry.usd as number), 0) / sample.length;
 }
 
 async function recordCost(
@@ -1866,10 +1997,24 @@ function canStart(task: Task, state: Record<AgentRole, AgentState>): boolean {
   return state[task.assignee].runningTasks.length < MAX_PARALLEL_PER_ROLE[task.assignee];
 }
 
-function depsOk(task: Task, all: Task[]): boolean {
+// F0.4: merge-ready counts as satisfied by default so the pipeline does not
+// serialize on human merge approval. Override via a comma-separated
+// ORCHESTRATOR_DEP_SATISFIED_STATUSES (e.g. "done" to require full merges).
+export function depSatisfiedStatuses(): Set<string> {
+  const raw = process.env.ORCHESTRATOR_DEP_SATISFIED_STATUSES ?? 'done,merge-ready';
+  return new Set(raw.split(',').map((status) => status.trim()).filter((status) => status !== ''));
+}
+
+export function depsOk(
+  task: Task,
+  all: Task[],
+  satisfiedStatuses = depSatisfiedStatuses(),
+): boolean {
   if (!task.depends_on.length) return true;
-  const done = new Set(all.filter((t) => t.status === 'done').map((t) => t.id));
-  return task.depends_on.every((d) => done.has(d));
+  const satisfied = new Set(
+    all.filter((t) => satisfiedStatuses.has(t.status)).map((t) => t.id),
+  );
+  return task.depends_on.every((d) => satisfied.has(d));
 }
 
 function pickNext(
@@ -1931,13 +2076,14 @@ async function tick(projectId?: string): Promise<void> {
       return;
     }
 
-    const [backlog, inProgress, review, done] = await Promise.all([
+    const [backlog, inProgress, review, mergeReady, done] = await Promise.all([
       listTasksInDir('backlog', VAULT_PATH, projectId),
       listTasksInDir('in-progress', VAULT_PATH, projectId),
       listTasksInDir('review', VAULT_PATH, projectId),
+      listTasksInDir('merge-ready', VAULT_PATH, projectId),
       listTasksInDir('done', VAULT_PATH, projectId),
     ]);
-    const all = [...backlog, ...inProgress, ...review, ...done];
+    const all = [...backlog, ...inProgress, ...review, ...mergeReady, ...done];
 
     const state = Object.fromEntries(
       AGENT_ROLES.map(
@@ -1949,10 +2095,26 @@ async function tick(projectId?: string): Promise<void> {
     console.log(`[tick] launching ${toLaunch.length} task(s) from ${backlog.length} backlog${projectId === undefined ? '' : ` for ${projectId}`}; ${inFlightLaunches.size} already in flight`);
     logAgentRouting(toLaunch);
 
-    // Fire-and-forget: agents run for up to AGENT_TIMEOUT_MS, so the tick must
-    // not block on them. Tasks are moved to in-progress inside launchTask, and
-    // pickNext only draws from backlog, so subsequent ticks cannot double-launch.
+    // Predictive cap: estimate each launch from journal history and stop
+    // before the daily cap would be blown, not after. Fire-and-forget: agents
+    // run for up to AGENT_TIMEOUT_MS, so the tick must not block on them.
+    // Tasks are moved to in-progress inside launchTask, and pickNext only
+    // draws from backlog, so subsequent ticks cannot double-launch.
+    const journalEntries = await readCostJournalEntries();
+    let projectedUsd = todayCost;
     for (const task of toLaunch) {
+      const { model } = readAgentRuntimeConfig(task.assignee, task.model);
+      const estimateUsd = estimateLaunchCostUsd(task.assignee, model, journalEntries);
+      if (projectedUsd + estimateUsd > COST_CAP_USD) {
+        console.warn(
+          `[cost] ${task.id} deferred: ≈$${estimateUsd.toFixed(2)} would push today past `
+          + `$${COST_CAP_USD} (spent $${todayCost.toFixed(2)}, projected $${projectedUsd.toFixed(2)})`,
+        );
+        continue;
+      }
+
+      projectedUsd += estimateUsd;
+      console.log(`[launch] ${task.id} (${task.assignee}:${model}) estimated ≈$${estimateUsd.toFixed(2)}`);
       trackLaunch(task);
     }
 

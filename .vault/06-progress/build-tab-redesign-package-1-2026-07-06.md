@@ -72,6 +72,29 @@ Retiring the remaining `orchestrator.css` admin panels continues gradually as
 those panels get product-tab equivalents (Model Hub in Package 2 replaces the
 model-routing rail; Insights in Phase 4 replaces the cost mode).
 
+## Increment 4 (2026-07-07) — token-economics fixes (F0.1, F0.4, estimates)
+
+- **F0.1 exact usage for Claude runs**: launches now use
+  `--output-format stream-json --verbose`, and `estimateCost` parses the final
+  result event (total_cost_usd + usage incl. cache tokens) — the chars/4
+  heuristic only remains as a last-resort fallback marked `estimated: true`.
+  Codex keeps its exact "Tokens used" summary-line parse; its JSON migration
+  lands with the Runner abstraction in Package 2.
+- **Pre-launch estimates + predictive cap**: per-launch cost is estimated from
+  journal history (same role+model → same role → any, avg of last 20 exact
+  entries; `ORCHESTRATOR_DEFAULT_LAUNCH_COST_USD` with an empty journal, $1).
+  The tick now defers launches that would *push today past the cap* instead of
+  only halting after it is blown. The Build drawer shows "Estimated run cost"
+  for queued tasks from the same signal.
+- **F0.4 deps unblocked**: `depsOk` accepts `done` and `merge-ready` by default
+  (`ORCHESTRATOR_DEP_SATISFIED_STATUSES` to override); the tick also lists the
+  merge-ready folder, which the scheduler previously never read.
+- **Codex role-file cache**: role files are memoized by mtime; the static role
+  prefix stays byte-identical across launches for provider prompt-cache hits.
+- Verified: lint, typecheck, 24/24 orchestrator (10 new) + 155/155 web tests,
+  `next build`. Claude CLI flag support confirmed locally. First real agent
+  run should be checked in the journal for `estimated: false`.
+
 ## Next: Package 2 — Runner abstraction
 
 `Runner { run(task, ctx): RunResult }`; refactor Claude/Codex CLI into

@@ -64,6 +64,64 @@ export function summarizeCostJournal(content: string, now: Date): CostJournalSum
   return { taskCostsUsd, todayEntryCount, todayUsd };
 }
 
+const ROLE_ESTIMATE_SAMPLE_SIZE = 20;
+
+/**
+ * Average cost of the most recent exact (non-estimated) runs per role —
+ * the same signal the orchestrator's predictive cap uses before launching.
+ */
+export function estimateRoleCostsUsd(content: string): Record<string, number> {
+  const samples = new Map<string, number[]>();
+
+  for (const line of content.split('\n')) {
+    const trimmed = line.trim();
+    if (trimmed === '') {
+      continue;
+    }
+
+    let entry: { estimated?: unknown; role?: unknown; usd?: unknown };
+    try {
+      entry = JSON.parse(trimmed) as { estimated?: unknown; role?: unknown; usd?: unknown };
+    } catch {
+      continue;
+    }
+
+    if (
+      typeof entry.role !== 'string'
+      || typeof entry.usd !== 'number'
+      || entry.usd < 0
+      || entry.estimated === true
+    ) {
+      continue;
+    }
+
+    const roleSamples = samples.get(entry.role) ?? [];
+    roleSamples.push(entry.usd);
+    samples.set(entry.role, roleSamples);
+  }
+
+  return Object.fromEntries(
+    [...samples.entries()].map(([role, values]) => {
+      const recent = values.slice(-ROLE_ESTIMATE_SAMPLE_SIZE);
+      return [role, recent.reduce((total, value) => total + value, 0) / recent.length];
+    }),
+  );
+}
+
+export async function readRoleCostEstimates(): Promise<Record<string, number>> {
+  const journalPath = costJournalPath();
+  if (!existsSync(journalPath)) {
+    return {};
+  }
+
+  try {
+    const content = await readFile(journalPath, 'utf-8');
+    return estimateRoleCostsUsd(content);
+  } catch {
+    return {};
+  }
+}
+
 export async function readCostJournalSummary(now = new Date()): Promise<CostJournalSummary> {
   const journalPath = costJournalPath();
   if (!existsSync(journalPath)) {
