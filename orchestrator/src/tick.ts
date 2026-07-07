@@ -4,7 +4,7 @@
 
 import { spawn, type ChildProcess } from 'node:child_process';
 import { createWriteStream, existsSync, readFileSync } from 'node:fs';
-import { appendFile, cp, mkdir, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { appendFile, cp, mkdir, readdir, readFile, rename, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { basename, dirname, extname, isAbsolute, join, relative, sep } from 'node:path';
 import { Readable } from 'node:stream';
@@ -276,10 +276,9 @@ async function updateAgentRoutingControl(
 
   overrides[role] = next;
   await mkdir(dirname(routingPath), { recursive: true });
-  await writeFile(`${routingPath}.tmp`, `${JSON.stringify(overrides, null, 2)}\n`, 'utf-8');
-  await rm(routingPath, { force: true });
-  await cp(`${routingPath}.tmp`, routingPath);
-  await rm(`${routingPath}.tmp`, { force: true });
+  const tmpPath = `${routingPath}.tmp`;
+  await writeFile(tmpPath, `${JSON.stringify(overrides, null, 2)}\n`, 'utf-8');
+  await rename(tmpPath, routingPath);
 
   return {
     message: `${role} routing updated to ${next.runner ?? readAgentRuntimeConfig(role, undefined, routingPath).runner}:${next.model ?? readAgentRuntimeConfig(role, undefined, routingPath).model}`,
@@ -647,6 +646,12 @@ function exec(
       ? setTimeout(() => {
         timedOut = true;
         child.kill('SIGTERM');
+        // Some CLIs ignore SIGTERM mid-request; force-kill after a grace period.
+        setTimeout(() => {
+          if (child.exitCode === null && !child.killed) {
+            child.kill('SIGKILL');
+          }
+        }, 10_000).unref();
       }, options.timeoutMs)
       : null;
 
@@ -798,8 +803,29 @@ async function commitAndPush(
     ['pr', 'create', '--title', task.title, '--body', prBody, '--base', 'main'],
     worktreePath,
   );
-  const prNumber = parsePrNumber(pr.stdout);
-  const prUrl = parsePrUrl(pr.stdout);
+  let prNumber = parsePrNumber(pr.stdout);
+  let prUrl = parsePrUrl(pr.stdout);
+
+  // On worktree reuse, `gh pr create` fails if a PR already exists for the
+  // branch. Recover the existing PR instead of moving the task to review
+  // without a PR link.
+  if (prNumber === null) {
+    const existing = await exec(
+      'gh',
+      ['pr', 'view', branch, '--json', 'number,url'],
+      worktreePath,
+    );
+    if (existing.code === 0) {
+      try {
+        const parsed = JSON.parse(existing.stdout) as { number?: number; url?: string };
+        if (typeof parsed.number === 'number') prNumber = parsed.number;
+        if (typeof parsed.url === 'string') prUrl = parsed.url;
+        console.log(`[git] ${task.id}: recovered existing PR #${prNumber ?? '?'} for ${branch}`);
+      } catch {
+        // Leave prNumber/prUrl null; task will land in review without a PR link.
+      }
+    }
+  }
 
   return { branch, ...changedFiles, prNumber, prUrl };
 }
@@ -1027,6 +1053,8 @@ interface RunResult {
   stdout: string;
   stderr: string;
   costUsd: number;
+  costEstimated: boolean;
+  model: string;
   tokensIn: number;
   tokensOut: number;
   durationMs: number;
@@ -1046,19 +1074,28 @@ async function runAgent(task: Task, worktreePath: string): Promise<RunResult> {
   let result: { stdout: string; stderr: string; code: number };
 
   if (runner === 'claude') {
+    // F0.1: stream-json keeps the live log flowing AND ends with a result
+    // event carrying exact usage + total_cost_usd, so cost is never estimated.
     result = await exec(
       'claude',
-      ['--agent', task.assignee, '--model', model, '--print', prompt],
+      [
+        '--agent', task.assignee,
+        '--model', model,
+        '--print',
+        '--output-format', 'stream-json',
+        '--verbose',
+        prompt,
+      ],
       worktreePath,
       claudeAgentEnv(),
       { timeoutMs: AGENT_TIMEOUT_MS, logPath: liveLogPath, taskId: task.id },
     );
   } else {
     // Codex doesn't support --agent flag. Read role file and prepend to prompt.
+    // The role file leads the prompt so the static prefix stays byte-identical
+    // across launches and provider-side prompt caching can hit.
     const agentFilePath = join(REPO_ROOT, `.codex/agents/${task.assignee}.md`);
-    const agentContext = existsSync(agentFilePath)
-      ? await readFile(agentFilePath, 'utf-8')
-      : '';
+    const agentContext = await readRoleFileCached(agentFilePath);
     const codexPrompt = agentContext
       ? `${agentContext}\n\n---\n\nYour task:\n${prompt}`
       : prompt;
@@ -1077,10 +1114,33 @@ async function runAgent(task: Task, worktreePath: string): Promise<RunResult> {
     stdout: result.stdout,
     stderr: result.stderr,
     costUsd: cost.usd,
+    costEstimated: cost.estimated,
+    model,
     tokensIn: cost.tokensIn,
     tokensOut: cost.tokensOut,
     durationMs: Date.now() - started,
   };
+}
+
+// Role files change rarely but are re-sent on every Codex launch; cache them
+// in memory keyed by mtime so repeated launches skip the disk read and always
+// produce the exact same prefix bytes (a prerequisite for prompt-cache hits).
+const roleFileCache = new Map<string, { content: string; mtimeMs: number }>();
+
+async function readRoleFileCached(path: string): Promise<string> {
+  try {
+    const stats = await stat(path);
+    const cached = roleFileCache.get(path);
+    if (cached !== undefined && cached.mtimeMs === stats.mtimeMs) {
+      return cached.content;
+    }
+
+    const content = await readFile(path, 'utf-8');
+    roleFileCache.set(path, { content, mtimeMs: stats.mtimeMs });
+    return content;
+  } catch {
+    return '';
+  }
 }
 
 function claudeAgentEnv(): NodeJS.ProcessEnv {
@@ -1123,27 +1183,221 @@ function buildPrompt(task: Task): string {
   return lines.join('\n');
 }
 
-function estimateCost(output: string): { usd: number; tokensIn: number; tokensOut: number } {
-  const m = output.match(/Tokens used: (\d+) input, (\d+) output.*\$(\d+\.\d+)/);
-  if (m) {
-    return { tokensIn: Number(m[1]), tokensOut: Number(m[2]), usd: Number(m[3]) };
+interface CostEstimate {
+  usd: number;
+  tokensIn: number;
+  tokensOut: number;
+  estimated: boolean;
+}
+
+export function estimateCost(output: string): CostEstimate {
+  // 1. Codex-style summary line: "Tokens used: N input, M output ... $X.YZ"
+  const codex = output.match(/Tokens used: (\d+) input, (\d+) output.*\$(\d+\.\d+)/);
+  if (codex) {
+    return {
+      tokensIn: Number(codex[1]),
+      tokensOut: Number(codex[2]),
+      usd: Number(codex[3]),
+      estimated: false,
+    };
   }
+
+  // 2. Claude Code stream-json: the final result event carries authoritative
+  //    total_cost_usd and full usage (including cache tokens). Scan from the
+  //    end — intermediate assistant events also contain usage objects.
+  const claudeResult = parseClaudeResultEvent(output);
+  if (claudeResult !== null) {
+    return claudeResult;
+  }
+
+  // 3. Loose fallback for plain-JSON output: regex for total_cost_usd.
+  const claudeCost = output.match(/"total_cost_usd"\s*:\s*([0-9]+(?:\.[0-9]+)?)/);
+  const claudeIn = output.match(/"input_tokens"\s*:\s*(\d+)/);
+  const claudeOut = output.match(/"output_tokens"\s*:\s*(\d+)/);
+  if (claudeCost) {
+    return {
+      tokensIn: claudeIn ? Number(claudeIn[1]) : 0,
+      tokensOut: claudeOut ? Number(claudeOut[1]) : 0,
+      usd: Number(claudeCost[1]),
+      estimated: false,
+    };
+  }
+
+  // 4. Fallback heuristic: ~4 chars per token. Marked as estimated so the
+  //    journal and UI can distinguish real vs guessed spend.
   return {
     tokensIn: Math.floor(output.length / 4),
     tokensOut: Math.floor(output.length / 8),
     usd: (output.length / 4 / 1_000_000) * 3,
+    estimated: true,
   };
 }
 
-// ============================================================================
-// Cost tracking (stub — wire to Postgres later)
-// ============================================================================
+function parseClaudeResultEvent(output: string): CostEstimate | null {
+  const lines = output.split('\n');
+  for (let i = lines.length - 1; i >= 0; i -= 1) {
+    const trimmed = lines[i].trim();
+    if (!trimmed.startsWith('{')) continue;
 
-async function getTodayCost(): Promise<number> {
-  return 0;
+    let event: {
+      total_cost_usd?: unknown;
+      type?: unknown;
+      usage?: {
+        cache_creation_input_tokens?: unknown;
+        cache_read_input_tokens?: unknown;
+        input_tokens?: unknown;
+        output_tokens?: unknown;
+      };
+    };
+    try {
+      event = JSON.parse(trimmed);
+    } catch {
+      continue;
+    }
+
+    if (event.type !== 'result' || typeof event.total_cost_usd !== 'number') {
+      continue;
+    }
+
+    const usage = event.usage ?? {};
+    const tokensIn = asCount(usage.input_tokens)
+      + asCount(usage.cache_read_input_tokens)
+      + asCount(usage.cache_creation_input_tokens);
+
+    return {
+      tokensIn,
+      tokensOut: asCount(usage.output_tokens),
+      usd: event.total_cost_usd,
+      estimated: false,
+    };
+  }
+
+  return null;
 }
 
-async function recordCost(_role: AgentRole, _usd: number): Promise<void> { }
+function asCount(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : 0;
+}
+
+// ============================================================================
+// Cost tracking — append-only JSONL journal in the vault.
+// Postgres (packages/db daily_cost / agent_runs) can be layered on later;
+// the journal keeps the cost cap enforceable without a DB dependency.
+// ============================================================================
+
+const COST_JOURNAL_PATH = process.env.ORCHESTRATOR_COST_JOURNAL_PATH
+  ?? join(VAULT_PATH, '06-progress', 'cost-journal.jsonl');
+
+interface CostJournalEntry {
+  ts: string;
+  role: AgentRole;
+  taskId: string;
+  model: string;
+  usd: number;
+  tokensIn: number;
+  tokensOut: number;
+  estimated: boolean;
+}
+
+function isSameLocalDay(a: Date, b: Date): boolean {
+  return a.getFullYear() === b.getFullYear()
+    && a.getMonth() === b.getMonth()
+    && a.getDate() === b.getDate();
+}
+
+async function readCostJournalEntries(
+  journalPath = COST_JOURNAL_PATH,
+): Promise<Partial<CostJournalEntry>[]> {
+  if (!existsSync(journalPath)) return [];
+
+  try {
+    const raw = await readFile(journalPath, 'utf-8');
+    const entries: Partial<CostJournalEntry>[] = [];
+    for (const line of raw.split('\n')) {
+      const trimmed = line.trim();
+      if (trimmed === '') continue;
+      try {
+        entries.push(JSON.parse(trimmed) as Partial<CostJournalEntry>);
+      } catch {
+        // Skip malformed lines instead of failing the whole tick.
+      }
+    }
+    return entries;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[cost] could not read cost journal: ${msg}`);
+    return [];
+  }
+}
+
+async function getTodayCost(now = new Date(), journalPath = COST_JOURNAL_PATH): Promise<number> {
+  try {
+    const entries = await readCostJournalEntries(journalPath);
+    let total = 0;
+    for (const entry of entries) {
+      if (typeof entry.ts !== 'string' || typeof entry.usd !== 'number') continue;
+      const ts = new Date(entry.ts);
+      if (!Number.isNaN(ts.getTime()) && isSameLocalDay(ts, now) && entry.usd >= 0) {
+        total += entry.usd;
+      }
+    }
+    return total;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[cost] could not read cost journal: ${msg}`);
+    return 0;
+  }
+}
+
+// Pre-launch cost estimate from journal history: prefer exact (non-estimated)
+// entries for the same role+model, then same role, then anything — averaged
+// over the most recent runs. With an empty journal, fall back to a flat
+// default (ORCHESTRATOR_DEFAULT_LAUNCH_COST_USD, $1 if unset).
+const LAUNCH_ESTIMATE_SAMPLE_SIZE = 20;
+
+function defaultLaunchCostUsd(): number {
+  const parsed = Number(process.env.ORCHESTRATOR_DEFAULT_LAUNCH_COST_USD);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 1;
+}
+
+export function estimateLaunchCostUsd(
+  role: string,
+  model: string,
+  entries: readonly Partial<CostJournalEntry>[],
+): number {
+  const usable = entries.filter(
+    (entry) => typeof entry.usd === 'number' && entry.usd >= 0 && entry.estimated !== true,
+  );
+  const sameRoleModel = usable.filter((entry) => entry.role === role && entry.model === model);
+  const sameRole = sameRoleModel.length > 0
+    ? sameRoleModel
+    : usable.filter((entry) => entry.role === role);
+  const sample = (sameRole.length > 0 ? sameRole : usable).slice(-LAUNCH_ESTIMATE_SAMPLE_SIZE);
+
+  if (sample.length === 0) {
+    return defaultLaunchCostUsd();
+  }
+
+  return sample.reduce((total, entry) => total + (entry.usd as number), 0) / sample.length;
+}
+
+async function recordCost(
+  entry: Omit<CostJournalEntry, 'ts'>,
+  journalPath = COST_JOURNAL_PATH,
+  now = new Date(),
+): Promise<void> {
+  try {
+    await mkdir(dirname(journalPath), { recursive: true });
+    await appendFile(
+      journalPath,
+      `${JSON.stringify({ ts: now.toISOString(), ...entry } satisfies CostJournalEntry)}\n`,
+      'utf-8',
+    );
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[cost] could not record cost entry: ${msg}`);
+  }
+}
 
 // ============================================================================
 // HTTP status endpoint
@@ -1743,10 +1997,24 @@ function canStart(task: Task, state: Record<AgentRole, AgentState>): boolean {
   return state[task.assignee].runningTasks.length < MAX_PARALLEL_PER_ROLE[task.assignee];
 }
 
-function depsOk(task: Task, all: Task[]): boolean {
+// F0.4: merge-ready counts as satisfied by default so the pipeline does not
+// serialize on human merge approval. Override via a comma-separated
+// ORCHESTRATOR_DEP_SATISFIED_STATUSES (e.g. "done" to require full merges).
+export function depSatisfiedStatuses(): Set<string> {
+  const raw = process.env.ORCHESTRATOR_DEP_SATISFIED_STATUSES ?? 'done,merge-ready';
+  return new Set(raw.split(',').map((status) => status.trim()).filter((status) => status !== ''));
+}
+
+export function depsOk(
+  task: Task,
+  all: Task[],
+  satisfiedStatuses = depSatisfiedStatuses(),
+): boolean {
   if (!task.depends_on.length) return true;
-  const done = new Set(all.filter((t) => t.status === 'done').map((t) => t.id));
-  return task.depends_on.every((d) => done.has(d));
+  const satisfied = new Set(
+    all.filter((t) => satisfiedStatuses.has(t.status)).map((t) => t.id),
+  );
+  return task.depends_on.every((d) => satisfied.has(d));
 }
 
 function pickNext(
@@ -1775,6 +2043,27 @@ function pickNext(
 // Main tick
 // ============================================================================
 
+const inFlightLaunches = new Set<string>();
+
+function trackLaunch(task: Task): void {
+  if (inFlightLaunches.has(task.id)) {
+    console.warn(`[tick] ${task.id} already launching; skipped duplicate launch`);
+    return;
+  }
+
+  inFlightLaunches.add(task.id);
+  runtimeState.activeLaunches = inFlightLaunches.size;
+  void launchTask(task)
+    .catch((err: unknown) => {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[tick] ${task.id} launch crashed: ${msg}`);
+    })
+    .finally(() => {
+      inFlightLaunches.delete(task.id);
+      runtimeState.activeLaunches = inFlightLaunches.size;
+    });
+}
+
 async function tick(projectId?: string): Promise<void> {
   runtimeState.lastTickStartedAt = new Date().toISOString();
   runtimeState.lastTickError = null;
@@ -1783,17 +2072,18 @@ async function tick(projectId?: string): Promise<void> {
   try {
     const todayCost = await getTodayCost();
     if (todayCost > COST_CAP_USD) {
-      console.warn(`[tick] cost cap hit ($${todayCost.toFixed(2)}). Halting.`);
+      console.warn(`[tick] cost cap hit ($${todayCost.toFixed(2)} > $${COST_CAP_USD}). Halting new launches.`);
       return;
     }
 
-    const [backlog, inProgress, review, done] = await Promise.all([
+    const [backlog, inProgress, review, mergeReady, done] = await Promise.all([
       listTasksInDir('backlog', VAULT_PATH, projectId),
       listTasksInDir('in-progress', VAULT_PATH, projectId),
       listTasksInDir('review', VAULT_PATH, projectId),
+      listTasksInDir('merge-ready', VAULT_PATH, projectId),
       listTasksInDir('done', VAULT_PATH, projectId),
     ]);
-    const all = [...backlog, ...inProgress, ...review, ...done];
+    const all = [...backlog, ...inProgress, ...review, ...mergeReady, ...done];
 
     const state = Object.fromEntries(
       AGENT_ROLES.map(
@@ -1802,25 +2092,37 @@ async function tick(projectId?: string): Promise<void> {
     ) as Record<AgentRole, AgentState>;
 
     const toLaunch = pickNext(backlog, all, state);
-    runtimeState.activeLaunches = toLaunch.length;
-    console.log(`[tick] launching ${toLaunch.length} task(s) from ${backlog.length} backlog${projectId === undefined ? '' : ` for ${projectId}`}`);
+    console.log(`[tick] launching ${toLaunch.length} task(s) from ${backlog.length} backlog${projectId === undefined ? '' : ` for ${projectId}`}; ${inFlightLaunches.size} already in flight`);
     logAgentRouting(toLaunch);
 
-    const results = await Promise.allSettled(toLaunch.map((task) => launchTask(task)));
-    for (const [idx, result] of results.entries()) {
-      if (result.status === 'rejected') {
-        const task = toLaunch[idx];
-        const msg = result.reason instanceof Error ? result.reason.message : String(result.reason);
-        console.error(`[tick] ${task?.id ?? 'unknown task'} launch crashed: ${msg}`);
+    // Predictive cap: estimate each launch from journal history and stop
+    // before the daily cap would be blown, not after. Fire-and-forget: agents
+    // run for up to AGENT_TIMEOUT_MS, so the tick must not block on them.
+    // Tasks are moved to in-progress inside launchTask, and pickNext only
+    // draws from backlog, so subsequent ticks cannot double-launch.
+    const journalEntries = await readCostJournalEntries();
+    let projectedUsd = todayCost;
+    for (const task of toLaunch) {
+      const { model } = readAgentRuntimeConfig(task.assignee, task.model);
+      const estimateUsd = estimateLaunchCostUsd(task.assignee, model, journalEntries);
+      if (projectedUsd + estimateUsd > COST_CAP_USD) {
+        console.warn(
+          `[cost] ${task.id} deferred: ≈$${estimateUsd.toFixed(2)} would push today past `
+          + `$${COST_CAP_USD} (spent $${todayCost.toFixed(2)}, projected $${projectedUsd.toFixed(2)})`,
+        );
+        continue;
       }
+
+      projectedUsd += estimateUsd;
+      console.log(`[launch] ${task.id} (${task.assignee}:${model}) estimated ≈$${estimateUsd.toFixed(2)}`);
+      trackLaunch(task);
     }
 
-    console.log(`[tick] complete`);
+    console.log(`[tick] scheduling complete`);
   } catch (err) {
     runtimeState.lastTickError = err instanceof Error ? err.message : String(err);
     throw err;
   } finally {
-    runtimeState.activeLaunches = 0;
     runtimeState.lastTickFinishedAt = new Date().toISOString();
   }
 }
@@ -1848,7 +2150,15 @@ async function launchTask(task: Task): Promise<void> {
   console.log(lines.slice(-60).join('\n'));
   console.log('--- end ---');
 
-  await recordCost(task.assignee, result.costUsd);
+  await recordCost({
+    role: task.assignee,
+    taskId: task.id,
+    model: result.model,
+    usd: result.costUsd,
+    tokensIn: result.tokensIn,
+    tokensOut: result.tokensOut,
+    estimated: result.costEstimated,
+  });
   await stripInjectedMemoryContext(worktreePath);
 
   if (result.exitCode !== 0) {
@@ -1999,7 +2309,13 @@ function startBackgroundRun(
 async function launchSingleTask(taskId: string, projectId?: string): Promise<void> {
   runtimeState.lastTickStartedAt = new Date().toISOString();
   runtimeState.lastTickError = null;
-  runtimeState.activeLaunches = 1;
+
+  if (inFlightLaunches.has(taskId) || runningAgentProcesses.has(taskId)) {
+    throw new Error(`Task ${taskId} is already running`);
+  }
+
+  inFlightLaunches.add(taskId);
+  runtimeState.activeLaunches = inFlightLaunches.size;
 
   try {
     for (const dir of ['backlog', 'in-progress', 'failed'] as const) {
@@ -2013,7 +2329,8 @@ async function launchSingleTask(taskId: string, projectId?: string): Promise<voi
 
     throw new Error(`Task ${taskId} not found`);
   } finally {
-    runtimeState.activeLaunches = 0;
+    inFlightLaunches.delete(taskId);
+    runtimeState.activeLaunches = inFlightLaunches.size;
   }
 }
 
@@ -2061,6 +2378,28 @@ async function automationLoop(): Promise<void> {
 }
 
 // ============================================================================
+// Startup reconciliation
+// ============================================================================
+
+// If the orchestrator process crashed or was restarted, tasks left in
+// in-progress have no live agent process. They silently consume role capacity
+// forever, which starves the scheduler. On startup, no agent processes exist
+// yet, so every in-progress task is an orphan: flag it and return it to the
+// backlog so a human can decide whether to relaunch.
+async function reconcileOrphanedInProgressTasks(vaultPath = VAULT_PATH): Promise<void> {
+  const orphans = await listTasksInDir('in-progress', vaultPath);
+  if (orphans.length === 0) return;
+
+  for (const task of orphans) {
+    console.warn(`[recover] ${task.id} was in-progress with no live process; returning to backlog (flagged)`);
+    const moved = await moveTask(task, 'backlog', vaultPath);
+    await writeTask(moved, { flagged: true, status: 'backlog' });
+  }
+
+  console.warn(`[recover] reconciled ${orphans.length} orphaned in-progress task(s). Unflag them to relaunch.`);
+}
+
+// ============================================================================
 // CLI
 // ============================================================================
 
@@ -2086,12 +2425,14 @@ async function main(): Promise<void> {
   }
 
   if (statusServerOnly) {
+    await reconcileOrphanedInProgressTasks();
     await startStatusServer();
     await new Promise(() => { });
   }
 
   if (daemon) {
     runtimeState.daemonRunning = true;
+    await reconcileOrphanedInProgressTasks();
     if (!noStatusServer) {
       await startStatusServer();
     }

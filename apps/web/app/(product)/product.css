@@ -1,0 +1,79 @@
+/*
+ * Product shell stylesheet (Home / Build / Deploy / Market / Insights).
+ * Tailwind v4 utilities themed from @crm-orchestrator/ui product tokens.
+ * Preflight is intentionally not imported: the legacy admin console under
+ * /admin/orchestrator still relies on orchestrator.css global styling.
+ */
+@import '@crm-orchestrator/ui/tokens/product';
+@import 'tailwindcss/theme.css' layer(theme);
+@import 'tailwindcss/utilities.css' layer(utilities);
+
+@theme inline {
+  --color-*: initial;
+  --color-canvas: var(--product-color-canvas);
+  --color-surface: var(--product-color-surface);
+  --color-sunken: var(--product-color-surface-sunken);
+  --color-line: var(--product-color-line);
+  --color-line-strong: var(--product-color-line-strong);
+  --color-ink: var(--product-color-ink);
+  --color-ink-secondary: var(--product-color-ink-secondary);
+  --color-ink-faint: var(--product-color-ink-faint);
+  --color-accent: var(--product-color-accent);
+  --color-accent-strong: var(--product-color-accent-strong);
+  --color-accent-soft: var(--product-color-accent-soft);
+  --color-positive: var(--product-color-positive);
+  --color-positive-soft: var(--product-color-positive-soft);
+  --color-warning: var(--product-color-warning);
+  --color-warning-soft: var(--product-color-warning-soft);
+  --color-danger: var(--product-color-danger);
+  --color-danger-soft: var(--product-color-danger-soft);
+
+  --font-sans: var(--product-font-sans);
+  --font-mono: var(--product-font-mono);
+
+  --radius-card: var(--product-radius-card);
+  --radius-control: var(--product-radius-control);
+  --radius-pill: var(--product-radius-pill);
+
+  --shadow-card: var(--product-shadow-card);
+  --shadow-drawer: var(--product-shadow-drawer);
+}
+
+.product-shell {
+  color-scheme: light;
+  min-height: 100vh;
+  background: var(--product-color-canvas);
+  color: var(--product-color-ink);
+  font-family: var(--product-font-sans);
+  font-size: 0.9375rem;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+.product-shell h1,
+.product-shell h2,
+.product-shell h3,
+.product-shell p,
+.product-shell ul,
+.product-shell ol {
+  margin: 0;
+}
+
+.product-shell ul,
+.product-shell ol {
+  padding: 0;
+  list-style: none;
+}
+
+.product-shell a {
+  text-decoration: none;
+}
+
+.product-shell button {
+  border: none;
+  background: none;
+  padding: 0;
+  color: inherit;
+  cursor: pointer;
+  text-align: inherit;
+}
